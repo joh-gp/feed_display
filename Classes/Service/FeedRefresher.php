@@ -20,6 +20,7 @@ namespace ErHaWeb\FeedDisplay\Service;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use Psr\Log\LoggerAwareInterface;
 use Psr\Log\LoggerAwareTrait;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Locking\Exception\LockAcquireWouldBlockException;
 use TYPO3\CMS\Core\Locking\LockFactory;
@@ -41,6 +42,7 @@ class FeedRefresher implements LoggerAwareInterface
         private readonly FeedStorage $storage,
         private readonly LockFactory $lockFactory,
         private readonly Context $context,
+        private readonly CacheManager $cacheManager,
     ) {}
 
     /**
@@ -82,9 +84,14 @@ class FeedRefresher implements LoggerAwareInterface
             return RefreshResult::Failed;
         }
 
-        return $this->storage->storeSuccess($url, $result->rawData, $now)
-            ? RefreshResult::Updated
-            : RefreshResult::Unchanged;
+        if (!$this->storage->storeSuccess($url, $result->rawData, $now)) {
+            return RefreshResult::Unchanged;
+        }
+
+        // Pages showing this feed are rendered again with the new response.
+        $this->cacheManager->flushCachesInGroupByTag('pages', FeedStorage::getPageCacheTag($url));
+
+        return RefreshResult::Updated;
     }
 
     private function getNow(): int

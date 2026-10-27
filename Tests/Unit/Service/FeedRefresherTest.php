@@ -24,6 +24,7 @@ use ErHaWeb\FeedDisplay\Service\RefreshResult;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\MockObject\MockObject;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Context\Context;
 use TYPO3\CMS\Core\Context\DateTimeAspect;
 use TYPO3\CMS\Core\Locking\Exception\LockAcquireWouldBlockException;
@@ -39,6 +40,7 @@ final class FeedRefresherTest extends UnitTestCase
     private FeedFetcher&MockObject $fetcher;
     private FeedStorage&MockObject $storage;
     private LockingStrategyInterface&MockObject $locker;
+    private CacheManager&MockObject $cacheManager;
     private FeedRefresher $subject;
 
     protected function setUp(): void
@@ -51,7 +53,8 @@ final class FeedRefresherTest extends UnitTestCase
         $lockFactory->method('createLocker')->willReturn($this->locker);
         $context = new Context();
         $context->setAspect('date', new DateTimeAspect(new \DateTimeImmutable('@' . self::NOW)));
-        $this->subject = new FeedRefresher($this->fetcher, $this->storage, $lockFactory, $context);
+        $this->cacheManager = $this->createMock(CacheManager::class);
+        $this->subject = new FeedRefresher($this->fetcher, $this->storage, $lockFactory, $context, $this->cacheManager);
     }
 
     #[Test]
@@ -59,6 +62,8 @@ final class FeedRefresherTest extends UnitTestCase
     {
         $this->fetcher->method('fetch')->with(self::URL)->willReturn(FetchResult::success('<rss/>'));
         $this->storage->expects(self::once())->method('storeSuccess')->with(self::URL, '<rss/>', self::NOW)->willReturn(true);
+        $this->cacheManager->expects(self::once())->method('flushCachesInGroupByTag')
+            ->with('pages', FeedStorage::getPageCacheTag(self::URL));
         $this->locker->expects(self::once())->method('release');
 
         self::assertSame(RefreshResult::Updated, $this->subject->refresh(self::URL));
@@ -69,6 +74,7 @@ final class FeedRefresherTest extends UnitTestCase
     {
         $this->fetcher->method('fetch')->willReturn(FetchResult::success('<rss/>'));
         $this->storage->method('storeSuccess')->willReturn(false);
+        $this->cacheManager->expects(self::never())->method('flushCachesInGroupByTag');
 
         self::assertSame(RefreshResult::Unchanged, $this->subject->refresh(self::URL));
     }
@@ -79,6 +85,7 @@ final class FeedRefresherTest extends UnitTestCase
         $this->fetcher->method('fetch')->willReturn(FetchResult::failure('Connection refused'));
         $this->storage->expects(self::never())->method('storeSuccess');
         $this->storage->expects(self::once())->method('storeFailure')->with(self::URL, 'Connection refused', self::NOW);
+        $this->cacheManager->expects(self::never())->method('flushCachesInGroupByTag');
         $this->locker->expects(self::once())->method('release');
 
         self::assertSame(RefreshResult::Failed, $this->subject->refresh(self::URL));

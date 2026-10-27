@@ -23,6 +23,8 @@ use ErHaWeb\FeedDisplay\Service\FetchMode;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use ErHaWeb\FeedDisplay\Storage\StoredFeed;
 use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Core\Cache\CacheDataCollector;
+use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Extbase\Mvc\Controller\ActionController;
 
@@ -45,7 +47,11 @@ class FeedController extends ActionController
         $cacheDuration = (int)($this->settings['cacheDuration'] ?? 0);
         $feedUrl = stripslashes((string)($this->settings['feedUrl'] ?? ''));
         $fetchMode = FetchMode::fromSetting($this->settings['fetchMode'] ?? null);
-        $storedFeed = $feedUrl !== '' ? $this->feedProvider->provide($feedUrl, $cacheDuration, $fetchMode) : null;
+        $storedFeed = null;
+        if ($feedUrl !== '') {
+            $storedFeed = $this->feedProvider->provide($feedUrl, $cacheDuration, $fetchMode);
+            $this->tagPageCache($feedUrl, $fetchMode, $cacheDuration);
+        }
 
         $data = $storedFeed !== null && $storedFeed->hasContent()
             ? $this->getFeedData($storedFeed, $cacheDuration)
@@ -54,6 +60,21 @@ class FeedController extends ActionController
         $this->view->assign('data', $data);
 
         return $this->htmlResponse();
+    }
+
+    /**
+     * Lets FeedRefresher flush the page when the feed changes. In live mode, the
+     * page is also cached no longer than cacheDuration, so it fetches again in time.
+     */
+    private function tagPageCache(string $feedUrl, FetchMode $fetchMode, int $cacheDuration): void
+    {
+        $cacheDataCollector = $this->request->getAttribute('frontend.cache.collector');
+        if (!$cacheDataCollector instanceof CacheDataCollector) {
+            return;
+        }
+
+        $lifetime = $fetchMode === FetchMode::Live && $cacheDuration > 0 ? $cacheDuration : PHP_INT_MAX;
+        $cacheDataCollector->addCacheTags(new CacheTag(FeedStorage::getPageCacheTag($feedUrl), $lifetime));
     }
 
     /**
@@ -79,7 +100,7 @@ class FeedController extends ActionController
         $this->cache->set(
             $cacheIdentifier,
             ['bodyHash' => $storedFeed->bodyHash, 'data' => $data],
-            [self::CACHE_TAG, self::CACHE_TAG . '_' . FeedStorage::hashUrl($storedFeed->url)],
+            [self::CACHE_TAG, FeedStorage::getPageCacheTag($storedFeed->url)],
             $cacheDuration
         );
 

@@ -40,6 +40,14 @@ class FeedStorage
         return hash('sha256', $url);
     }
 
+    /**
+     * Tag of all cache entries rendered from this feed.
+     */
+    public static function getPageCacheTag(string $url): string
+    {
+        return 'feeddisplay_' . self::hashUrl($url);
+    }
+
     public function find(string $url): ?StoredFeed
     {
         $row = $this->getConnection()->select(['*'], self::TABLE, ['url_hash' => self::hashUrl($url)])->fetchAssociative();

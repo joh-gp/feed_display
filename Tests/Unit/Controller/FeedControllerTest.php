@@ -25,9 +25,14 @@ use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use ErHaWeb\FeedDisplay\Storage\StoredFeed;
 use PHPUnit\Framework\Attributes\Test;
 use Psr\Http\Message\ResponseInterface;
+use TYPO3\CMS\Core\Cache\CacheDataCollector;
+use TYPO3\CMS\Core\Cache\CacheTag;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Http\HtmlResponse;
+use TYPO3\CMS\Core\Http\ServerRequest;
 use TYPO3\CMS\Core\View\ViewInterface;
+use TYPO3\CMS\Extbase\Mvc\ExtbaseRequestParameters;
+use TYPO3\CMS\Extbase\Mvc\Request;
 use TYPO3\TestingFramework\Core\Unit\UnitTestCase;
 
 final class FeedControllerTest extends UnitTestCase
@@ -216,6 +221,59 @@ final class FeedControllerTest extends UnitTestCase
         self::assertSame($rebuiltData, $view->assigned['data']);
     }
 
+    #[Test]
+    public function liveModeLimitsThePageCacheLifetimeToTheCacheDuration(): void
+    {
+        $cacheDataCollector = $this->renderWithCacheDataCollector(['feedUrl' => self::FEED_URL, 'cacheDuration' => 600]);
+
+        self::assertEquals(
+            [new CacheTag(FeedStorage::getPageCacheTag(self::FEED_URL), 600)],
+            $cacheDataCollector->getCacheTags()
+        );
+        self::assertSame(600, $cacheDataCollector->resolveLifetime());
+    }
+
+    #[Test]
+    public function schedulerModeTagsThePageWithoutLimitingItsLifetime(): void
+    {
+        $cacheDataCollector = $this->renderWithCacheDataCollector(
+            ['feedUrl' => self::FEED_URL, 'cacheDuration' => 600, 'fetchMode' => 'scheduler']
+        );
+
+        self::assertEquals(
+            [new CacheTag(FeedStorage::getPageCacheTag(self::FEED_URL))],
+            $cacheDataCollector->getCacheTags()
+        );
+        self::assertSame(PHP_INT_MAX, $cacheDataCollector->resolveLifetime());
+    }
+
+    #[Test]
+    public function emptyFeedUrlDoesNotTagThePage(): void
+    {
+        $cacheDataCollector = $this->renderWithCacheDataCollector(['feedUrl' => '', 'cacheDuration' => 600]);
+
+        self::assertSame([], $cacheDataCollector->getCacheTags());
+    }
+
+    /**
+     * @param array<string, mixed> $settings
+     */
+    private function renderWithCacheDataCollector(array $settings): CacheDataCollector
+    {
+        $cacheDataCollector = new CacheDataCollector();
+        $subject = new TestableFeedController(
+            $this->createMock(FrontendInterface::class),
+            $this->createMock(FeedDataService::class),
+            $this->createMock(FeedProvider::class),
+            $cacheDataCollector
+        );
+        $subject->setSettings($settings);
+        $subject->setView(new RecordingView());
+        $subject->displayAction();
+
+        return $cacheDataCollector;
+    }
+
     private function createStoredFeed(string $rawBody): StoredFeed
     {
         return new StoredFeed(self::FEED_URL, $rawBody, hash('sha256', $rawBody), 1000, 1000);
@@ -224,6 +282,20 @@ final class FeedControllerTest extends UnitTestCase
 
 final class TestableFeedController extends FeedController
 {
+    public function __construct(
+        FrontendInterface $cache,
+        FeedDataService $feedDataService,
+        FeedProvider $feedProvider,
+        ?CacheDataCollector $cacheDataCollector = null,
+    ) {
+        parent::__construct($cache, $feedDataService, $feedProvider);
+        $serverRequest = (new ServerRequest())->withAttribute('extbase', new ExtbaseRequestParameters());
+        if ($cacheDataCollector !== null) {
+            $serverRequest = $serverRequest->withAttribute('frontend.cache.collector', $cacheDataCollector);
+        }
+        $this->request = new Request($serverRequest);
+    }
+
     /**
      * @param array<string, mixed> $settings
      */
