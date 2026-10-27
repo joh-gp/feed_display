@@ -105,19 +105,27 @@ class FeedStorage
     }
 
     /**
+     * @param list<string> $keepUrls Feeds to keep regardless of their last use
      * @return int Number of deleted feeds
      */
-    public function deleteUnusedSince(int $timestamp): int
+    public function deleteUnusedSince(int $timestamp, array $keepUrls = []): int
     {
         $queryBuilder = $this->connectionPool->getQueryBuilderForTable(self::TABLE);
-
-        return $queryBuilder
+        $queryBuilder
             ->delete(self::TABLE)
             ->where($queryBuilder->expr()->lt(
                 'last_used_at',
                 $queryBuilder->createNamedParameter($timestamp, Connection::PARAM_INT)
-            ))
-            ->executeStatement();
+            ));
+
+        if ($keepUrls !== []) {
+            $queryBuilder->andWhere($queryBuilder->expr()->notIn(
+                'url_hash',
+                $queryBuilder->createNamedParameter(array_map(self::hashUrl(...), $keepUrls), Connection::PARAM_STR_ARRAY)
+            ));
+        }
+
+        return $queryBuilder->executeStatement();
     }
 
     /**

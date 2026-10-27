@@ -97,4 +97,14 @@ final class FeedStorageTest extends FunctionalTestCase
         self::assertNull($this->subject->find('https://example.com/old.xml'));
         self::assertNotNull($this->subject->find('https://example.com/recent.xml'));
     }
+
+    #[Test]
+    public function pruningKeepsTheGivenUrls(): void
+    {
+        $this->subject->markUsed('https://example.com/configured.xml', 100);
+        $this->subject->markUsed('https://example.com/old.xml', 100);
+
+        self::assertSame(1, $this->subject->deleteUnusedSince(200, ['https://example.com/configured.xml']));
+        self::assertNotNull($this->subject->find('https://example.com/configured.xml'));
+    }
 }

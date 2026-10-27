@@ -19,6 +19,7 @@ namespace ErHaWeb\FeedDisplay\Controller;
 
 use ErHaWeb\FeedDisplay\Service\FeedDataService;
 use ErHaWeb\FeedDisplay\Service\FeedProvider;
+use ErHaWeb\FeedDisplay\Service\FetchMode;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use ErHaWeb\FeedDisplay\Storage\StoredFeed;
 use Psr\Http\Message\ResponseInterface;
@@ -43,7 +44,8 @@ class FeedController extends ActionController
 
         $cacheDuration = (int)($this->settings['cacheDuration'] ?? 0);
         $feedUrl = stripslashes((string)($this->settings['feedUrl'] ?? ''));
-        $storedFeed = $feedUrl !== '' ? $this->feedProvider->provide($feedUrl, $cacheDuration) : null;
+        $fetchMode = FetchMode::fromSetting($this->settings['fetchMode'] ?? null);
+        $storedFeed = $feedUrl !== '' ? $this->feedProvider->provide($feedUrl, $cacheDuration, $fetchMode) : null;
 
         $data = $storedFeed !== null && $storedFeed->hasContent()
             ? $this->getFeedData($storedFeed, $cacheDuration)

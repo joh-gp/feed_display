@@ -41,9 +41,9 @@ class FeedProvider
     ) {}
 
     /**
-     * @param int $lifetime Seconds a stored response counts as fresh, 0 fetches on every call
+     * @param int $lifetime Seconds a stored response counts as fresh in live mode, 0 fetches on every call
      */
-    public function provide(string $url, int $lifetime): ?StoredFeed
+    public function provide(string $url, int $lifetime, FetchMode $mode = FetchMode::Live): ?StoredFeed
     {
         $now = (int)$this->context->getPropertyFromAspect('date', 'timestamp');
         $storedFeed = $this->storage->find($url);
@@ -53,6 +53,12 @@ class FeedProvider
         }
 
         if ($storedFeed !== null && $storedFeed->isFresh($now, $lifetime)) {
+            return $storedFeed;
+        }
+
+        // In scheduler mode, page rendering only fetches a feed that has never been fetched successfully,
+        // so the plugin does not stay empty until the first run of the refresh command.
+        if ($mode === FetchMode::Scheduler && $storedFeed !== null && $storedFeed->hasContent()) {
             return $storedFeed;
         }
 

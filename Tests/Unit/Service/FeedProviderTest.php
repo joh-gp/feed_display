@@ -19,6 +19,7 @@ namespace ErHaWeb\FeedDisplay\Tests\Unit\Service;
 
 use ErHaWeb\FeedDisplay\Service\FeedProvider;
 use ErHaWeb\FeedDisplay\Service\FeedRefresher;
+use ErHaWeb\FeedDisplay\Service\FetchMode;
 use ErHaWeb\FeedDisplay\Service\RefreshResult;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use ErHaWeb\FeedDisplay\Storage\StoredFeed;
@@ -108,6 +109,27 @@ final class FeedProviderTest extends UnitTestCase
         $this->storage->expects(self::once())->method('markUsed')->with(self::URL, self::NOW);
 
         $this->subject->provide(self::URL, 600);
+    }
+
+    #[Test]
+    public function schedulerModeRendersAnExpiredResponseWithoutFetching(): void
+    {
+        $expiredFeed = $this->createStoredFeed(fetchedAt: self::NOW - 100000, lastUsedAt: self::NOW);
+        $this->storage->method('find')->willReturn($expiredFeed);
+        $this->refresher->expects(self::never())->method('refresh');
+
+        self::assertSame($expiredFeed, $this->subject->provide(self::URL, 600, FetchMode::Scheduler));
+    }
+
+    #[Test]
+    public function schedulerModeFetchesAFeedThatWasNeverFetchedSuccessfully(): void
+    {
+        $failedFeed = new StoredFeed(self::URL, lastAttemptAt: self::NOW - 10, lastError: 'Not found', lastUsedAt: self::NOW);
+        $fetchedFeed = $this->createStoredFeed(fetchedAt: self::NOW, lastUsedAt: self::NOW);
+        $this->storage->method('find')->willReturnOnConsecutiveCalls($failedFeed, $fetchedFeed);
+        $this->refresher->expects(self::once())->method('refresh')->with(self::URL, true)->willReturn(RefreshResult::Updated);
+
+        self::assertSame($fetchedFeed, $this->subject->provide(self::URL, 600, FetchMode::Scheduler));
     }
 
     private function createStoredFeed(int $fetchedAt, int $lastUsedAt): StoredFeed

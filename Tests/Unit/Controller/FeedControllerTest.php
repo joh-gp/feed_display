@@ -20,6 +20,7 @@ namespace ErHaWeb\FeedDisplay\Tests\Unit\Controller;
 use ErHaWeb\FeedDisplay\Controller\FeedController;
 use ErHaWeb\FeedDisplay\Service\FeedDataService;
 use ErHaWeb\FeedDisplay\Service\FeedProvider;
+use ErHaWeb\FeedDisplay\Service\FetchMode;
 use ErHaWeb\FeedDisplay\Storage\FeedStorage;
 use ErHaWeb\FeedDisplay\Storage\StoredFeed;
 use PHPUnit\Framework\Attributes\Test;
@@ -80,7 +81,7 @@ final class FeedControllerTest extends UnitTestCase
         $feedProvider = $this->createMock(FeedProvider::class);
         $view = new RecordingView();
 
-        $feedProvider->expects(self::once())->method('provide')->with(self::FEED_URL, 600)
+        $feedProvider->expects(self::once())->method('provide')->with(self::FEED_URL, 600, FetchMode::Live)
             ->willReturn(new StoredFeed(self::FEED_URL, lastError: 'Not found'));
         $feedDataService->expects(self::never())->method('buildData');
 
@@ -90,6 +91,24 @@ final class FeedControllerTest extends UnitTestCase
         $subject->displayAction();
 
         self::assertSame(['settings' => $settings], $view->assigned['data']);
+    }
+
+    #[Test]
+    public function displayActionPassesTheConfiguredFetchModeToTheProvider(): void
+    {
+        $settings = ['feedUrl' => self::FEED_URL, 'cacheDuration' => 600, 'fetchMode' => 'scheduler'];
+        $feedProvider = $this->createMock(FeedProvider::class);
+
+        $feedProvider->expects(self::once())->method('provide')->with(self::FEED_URL, 600, FetchMode::Scheduler)->willReturn(null);
+
+        $subject = new TestableFeedController(
+            $this->createMock(FrontendInterface::class),
+            $this->createMock(FeedDataService::class),
+            $feedProvider
+        );
+        $subject->setSettings($settings);
+        $subject->setView(new RecordingView());
+        $subject->displayAction();
     }
 
     #[Test]
